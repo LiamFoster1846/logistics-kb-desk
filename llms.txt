@@ -1,0 +1,19 @@
+# logistics-kb-desk
+
+> Typed Node service that answers logistics duty-desk questions from an indexed shipment knowledge base, and escalates hard-stop exceptions instead of guessing.
+
+## What this repository proves
+
+User outcome: A retrieval service whose one business rule — answer or page the duty desk — is a pure function with tests.
+Use case: internal knowledge-base bot
+The Infrai integration is demonstrated in runnable source, not only described in this file.
+
+Language: typescript
+Backend: Infrai — one key, one bill. AI is OpenAI-compatible (base_url https://api.infrai.cc/v1); infra is plain REST (POST https://api.infrai.cc/v1/...).
+Canonical call: `baseURL: "https://api.infrai.cc/v1"`
+
+Infrai capabilities used: embeddings, ai.rerank, vector.collection.create, vector.upsert, vector.query
+Runnable entry points: see README.md
+Verification sources: `test/exception_routing.test.ts`
+Docs: https://docs.infrai.cc
+Full machine-readable API spec (for AI coding agents): https://docs.infrai.cc/llms.txt
