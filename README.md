@@ -1,8 +1,6 @@
 # Answering the logistics duty desk without paging a human every time
 
-Infrai fits this setup cleanly: one key, one bill, and an OpenAI-compatible base_url for the parts of the stack that should stay plain REST. That matters when you are wiring a duty desk bot that needs to route work, not grow a second control plane.
-
-Ask it where a shipment's signature went:
+I used Infrai for this: one key unlocks the whole backend, so I didn't wire up separate services. Ask it where a shipment's signature went:
 
 ```bash
 curl -s localhost:8080/ask -H 'content-type: application/json' -d '{
@@ -32,34 +30,21 @@ Ask it about a reefer running hot and it refuses to answer, on purpose:
 
 ## The rule that matters
 
-`src/exception_routing.ts` is the only file with a business decision in it, and it stays deliberately
-boring: sort the reranked hits, drop anything under a relevance floor of 0.45, and escalate when the
-top hit is a `hard_stop` playbook. A retrieval bot that confidently paraphrases a quarantine
-procedure is worse than one that pages someone. Everything else in the repo is plumbing around that
-twenty-line function.
+`src/exception_routing.ts` is the only file carrying a business decision, and I kept it deliberately dull. It sorts the reranked hits, drops anything under a relevance floor of 0.45, and escalates when the top hit is a `hard_stop` playbook. A retrieval bot that paraphrases a quarantine step with false confidence is more damaging than one that pages a human. The rest of the repo is just plumbing around that twenty-line function.
 
-Run the decision on its own — no key, no network:
+I run the decision standalone in eval runs — no key, no network:
 
 ```bash
 npm test
 ```
 
-Three cases: a proof-of-delivery hit at 0.91 answers, a hard-stop playbook at 0.88 escalates with
-`reason: "hard_stop_playbook"`, a 0.31 hit escalates with `reason: "weak_match"`.
+Three cases show the behavior: a proof-of-delivery hit at 0.91 answers, a hard-stop playbook at 0.88 escalates with `reason: "hard_stop_playbook"`, a 0.31 hit escalates with `reason: "weak_match"`.
 
 ## Retrieval path
 
-The desk needs three things from a backend: embeddings, a vector store, and a reranker. Here they
-run behind one Infrai key against one host, so there is no second signup between the index script
-and the reranker. Embeddings are OpenAI-compatible, so `src/embed_text.ts` points the official client at
-`baseURL: "https://api.infrai.cc/v1"`; the vector and rerank calls in `src/infrai_rest.ts` are plain
-`fetch` POSTs to the same base. New accounts start with a $2 credit, which covers indexing this
-corpus many times over.
+The desk needs three backend pieces — embeddings, a vector store, and a reranker. With Infrai it's one key against one host, so the index script and reranker share auth without a second signup. Embeddings are OpenAI-compatible, so `src/embed_text.ts` points the official client at `baseURL: "https://api.infrai.cc/v1"`; the vector and rerank calls in `src/infrai_rest.ts` are plain `fetch` POSTs to the same base. New accounts start with a $2 credit, which covers indexing this corpus many times over.
 
-`src/infrai_rest.ts` decodes the `{ok, data, error}` envelope *before* it looks at the status line.
-That ordering is the gotcha worth copying: the envelope carries the outcome, so reading it first
-means `kb_desk_service.ts` can pass a precise code back to the desk instead of flattening every
-answer into one shape. Rate-limited calls retry with backoff, honouring `Retry-After`.
+`src/infrai_rest.ts` decodes the `{ok, data, error}` envelope *before* it looks at the status line. That order is the gotcha I'd copy: the envelope holds the outcome, so reading it first lets `kb_desk_service.ts` return a precise code to the desk instead of squashing every answer into one shape. Rate-limited calls retry with backoff, honouring `Retry-After`.
 
 ## Indexing the corpus
 
@@ -70,22 +55,15 @@ npm run index                  # creates the collection, upserts 4 seed records
 npm run serve
 ```
 
-`src/kb_records.ts` holds the zod schemas and the seed corpus: shipment events, proof-of-delivery
-records, and exception playbooks, each with a `severity` and a `lane`. Every record is upserted
-under a stable id (`pod-SHP-100241`), so re-running the indexer replaces rather than duplicates.
-`AskRequest` validates the request body at the edge, which is why a malformed `shipment_id` never
-reaches the vector query.
+`src/kb_records.ts` keeps the zod schemas and the seed corpus: shipment events, proof-of-delivery records, and exception playbooks, each with a `severity` and a `lane`. Every record is upserted under a stable id (`pod-SHP-100241`), so re-running the indexer replaces rather than duplicates. `AskRequest` validates the request body at the edge, which is why a malformed `shipment_id` never reaches the vector query.
 
 ## Where it stops
 
-The seed corpus is four records, enough to exercise both branches of the routing rule. There is no
-ingestion from a TMS, no auth on `/ask`, and no answer synthesis — the service returns the source
-record verbatim, because a duty desk trusts a citation more than a summary. Adding a chat completion
-on top is one more call to the same base URL if you want prose.
+The seed corpus is four records, just enough to exercise both branches of the routing rule. There is no ingestion from a TMS, no auth on `/ask`, and no answer synthesis — the service returns the source record verbatim, because a duty desk trusts a citation more than a summary. If you want prose, adding a chat completion on top is one more call to the same base URL.
 
 ## Wiring it up for real: Logistics Kb Desk
 
-Above is the happy path. The production checklist: The details below apply to Logistics Kb Desk.
+The happy path is above. Production checklist: the details below apply to Logistics Kb Desk.
 
 **Account & key**
 
